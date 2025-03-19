@@ -1,28 +1,33 @@
 import axios from "axios";
 
-// Load API key from .env file
-const API_TOKEN = import.meta.env.VITE_HUGGINGFACE_API_KEY;
+// ✅ MyMemory API URL
+const API_URL = "https://api.mymemory.translated.net/get";
 
-// Hugging Face Translation Model API (Default: English to French)
-const TRANSLATION_API_URL = "https://api-inference.huggingface.co/models/Helsinki-NLP/opus-mt-en-fr";
+// ✅ Supported Languages
+export const supportedLanguages: { [key: string]: string } = {
+    English: "en",
+    French: "fr",
+    Spanish: "es",
+    German: "de",
+    Chinese: "zh",
+    Arabic: "ar",
+    Hindi: "hi",
+    Italian: "it",
+    Portuguese: "pt",
+    Russian: "ru",
+    Japanese: "ja",
+    Korean: "ko",
+    Malayalam: "ml",
+};
 
-// Function to translate text using Hugging Face API
-export async function translateText(text: string, _targetLang: string = "fr", targetLang: string): Promise<string> {
-  try {
-    const response = await axios.post(
-      TRANSLATION_API_URL,  // API Endpoint
-      { inputs: text },     // Text input for translation
-      { headers: { Authorization: `Bearer ${API_TOKEN}` } }  // Auth token
-    );
-
-    // Extract translated text
-    if (response.data && response.data[0]?.translation_text) {
-      return response.data[0].translation_text;
-    } else {
-      throw new Error("Translation failed");
+export const translateText = async (text: string, sourceLang: string, targetLang: string) => {
+    try {
+        const response = await axios.get(API_URL, {
+            params: { q: text, langpair: `${sourceLang}|${targetLang}` },
+        });
+        return response.data.responseData.translatedText;
+    } catch (error) {
+        console.error("Translation error:", error);
+        return text;
     }
-  } catch (error) {
-    console.error("Translation error:", error);
-    return "Translation failed.";
-  }
-}
+};

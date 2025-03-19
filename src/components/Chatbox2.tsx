@@ -23,12 +23,13 @@ export default function ChatSpace() {
 
   const sendMessage = async () => {
     if (inputText.trim()) {
-      const sourceLang = "en";
       const targetLang =
-        language === "French" ? "fr" :
-        language === "Spanish" ? "es" :
-        language === "German" ? "de" : "en";
-
+      language === "French" ? "fr" :
+      language === "Chinese" ? "zh" :
+      language === "German" ? "de" :
+      language === "Spanish" ? "es" :
+      language === "Arabic" ? "ar" : "en";
+  
       const newMessage: Message = {
         id: Date.now(),
         sender: "user",
@@ -39,7 +40,7 @@ export default function ChatSpace() {
       setMessages((prevMessages) => [...prevMessages, newMessage]);
       setInputText("");
 
-      const translatedText = await translateText(inputText, sourceLang, targetLang);
+      const translatedText = await translateText(inputText, targetLang);
 
       setMessages((prevMessages) =>
         prevMessages.map((msg) =>
@@ -60,8 +61,10 @@ export default function ChatSpace() {
           className="bg-gray-700 text-white p-2 rounded-md"
         >
           <option>French</option>
-          <option>Spanish</option>
+          <option>Chinese</option>
           <option>German</option>
+          <option>Spanish</option>
+          <option>Arabic</option>
         </select>
       </div>
 
@@ -93,3 +96,4 @@ export default function ChatSpace() {
     </div>
   );
 }
+
