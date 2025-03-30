@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { translateText, supportedLanguages } from "../utils/translate";
 import EmojiPicker from "emoji-picker-react";
+import MultilingualKeyboard from "./MultilingualKeyboard";
+
 
 declare global {
   interface Window {
@@ -30,6 +32,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
   const chatWindowRef = useRef<HTMLDivElement | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showKeyboard, setShowKeyboard] = useState(false);
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -214,13 +217,36 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
           })}
         </div>
 
+
         {/* Input Box & Buttons */}
         <div style={{ display: "flex", padding: "10px", borderTop: "1px solid #ddd", alignItems: "center" }}>
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-            placeholder="Type a message..." style={{
-              flex: 1, padding: "12px", border: "1px solid #ccc", fontSize: "16px"
-            }} />
 
+          {/* 🔹 Toggle Keyboard Button */}
+          <button
+            onClick={() => setShowKeyboard(!showKeyboard)}
+            style={{
+              width: "40px", height: "40px",
+              backgroundColor: showKeyboard ?  "#ddd": "#f0f0f0",
+              color: "#fff", borderRadius: "6px", border: "1px solid #ccc",
+              cursor: "pointer", display: "flex", alignItems: "center",
+              justifyContent: "center", marginRight: "8px"
+            }}>
+            ⌨️
+          </button>
+
+          {/* 🔹 Text Input Field */}
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+            placeholder="Type a message..."
+            style={{
+              flex: 1, padding: "12px", border: "1px solid #ccc", fontSize: "16px"
+            }}
+          />
+
+          {/* 🔹 Emoji Picker Button */}
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
             style={{
@@ -229,17 +255,19 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
               border: "1px solid #ccc", cursor: "pointer",
               fontSize: "18px", display: "flex",
               alignItems: "center", justifyContent: "center",
-              marginRight: "8px",
-              marginLeft: "8px" // Add spacing between buttons
+              marginRight: "8px", marginLeft: "8px" // Add spacing between buttons
             }}>
             😀
           </button>
+
           {/* Emoji Picker */}
           {showEmojiPicker && (
             <div style={{ position: "absolute", bottom: "60px", right: "10px", zIndex: 1000 }}>
               <EmojiPicker onEmojiClick={handleEmojiClick} />
             </div>
           )}
+
+          {/* 🔹 Speech-to-Text Button */}
           <button
             onClick={isRecording ? stopSpeechToText : startSpeechToText}
             style={{
@@ -252,6 +280,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
             {isRecording ? "🔴" : "🎤"}
           </button>
 
+          {/* 🔹 Send Button */}
           <button
             onClick={handleSendMessage}
             style={{
@@ -262,8 +291,10 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
             }}>
             ➤
           </button>
-
         </div>
+
+        {/* 🔹 Show Multilingual Keyboard Only When Toggled On */}
+        {showKeyboard && <MultilingualKeyboard onChange={(text) => setInput(text)} />}
 
       </div>
     </div>
