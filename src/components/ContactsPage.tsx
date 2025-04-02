@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Chatbox from "./Chatbox";
 import { SparklesCore } from "./ui/Sparkles";
 import { TextGenerateEffect } from "./ui/text-generate-effect"; 
 import { motion } from "framer-motion";
+import { supabase } from "../components/Supabaseclient.tsx";
+
 const Logo = () => {
     const [hovered, setHovered] = useState(false);
 
@@ -30,36 +32,126 @@ const Logo = () => {
         >
             TRANSLINGO
         </motion.h1>
+
+        
     );
 };
 
 type Contact = {
     id: number;
     name: string;
+    email: string;
+};
+
+type SupabaseUser = {
+    firstname: string;
+    lastname: string;
+    email: string;
+};
+
+type Message = {
+    id: number;
+    sender_email: string;
+    receiver_email: string;
+    message: string;
+    created_at: string;
+    translated_text?: string;
+    source_language?: string;
+    target_language?: string;
 };
 
 const ContactsPage = () => {
     const [contacts, setContacts] = useState<Contact[]>([
-        { id: 1, name: "Alice" },
-        { id: 2, name: "Bob" },
+        { id: 1, name: "Alice", email: "alice@example.com" },
+        { id: 2, name: "Bob", email: "bob@example.com" },
     ]);
     const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
     const [selectedToDelete, setSelectedToDelete] = useState<Set<number>>(new Set());
     const [showDelete, setShowDelete] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [showSettings, setShowSettings] = useState(false);
-const [username, setUsername] = useState(localStorage.getItem("username") || "");
-const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("defaultLanguage") || "English");
+    const [username, setUsername] = useState(localStorage.getItem("username") || "");
+    const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("defaultLanguage") || "English");
+    const [userFirstName, setUserFirstName] = useState("");
+    const [userProfilePic, setUserProfilePic] = useState("");
+    const [searchUserEmail, setSearchUserEmail] = useState("");
+    const [searchError, setSearchError] = useState("");
+    const [showAddUserModal, setShowAddUserModal] = useState(false);
+
+    useEffect(() => {
+        const fetchUserData = async () => {
+            const userEmail = localStorage.getItem("userEmail");
+            if (!userEmail) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from("auth-domain")
+                    .select("firstname, lastname")
+                    .eq("email", userEmail)
+                    .single();
+
+                if (error) throw error;
+
+                if (data) {
+                    setUserFirstName(data.firstname || "Guest");
+                    // Update localStorage
+                    localStorage.setItem("userFirstName", data.firstname || "");
+                    localStorage.setItem("userLastName", data.lastname || "");
+                }
+            } catch (error) {
+                console.error("Error fetching user data:", error);
+                // Fallback to localStorage values
+                setUserFirstName(localStorage.getItem("userFirstName") || "Guest");
+            }
+        };
+
+        fetchUserData();
+    }, []);
+
+    const handleSearchAndAddUser = async () => {
+        try {
+            setSearchError("");
+            
+            // Check if user already exists in contacts
+            const existingContact = contacts.find(contact => contact.email === searchUserEmail);
+            if (existingContact) {
+                setSearchError("This user is already in your contacts!");
+                return;
+            }
+
+            // Search user in Supabase
+            const { data, error } = await supabase
+                .from("auth-domain")
+                .select("firstname, lastname, email")
+                .eq("email", searchUserEmail)
+                .single();
+
+            if (error) {
+                setSearchError("User not found!");
+                return;
+            }
+
+            if (data) {
+                // Add user to contacts
+                const newContact: Contact = {
+                    id: Date.now(),
+                    name: `${data.firstname} ${data.lastname}`,
+                    email: data.email
+                };
+                setContacts([...contacts, newContact]);
+                setShowAddUserModal(false);
+                setSearchUserEmail("");
+            }
+        } catch (error) {
+            console.error("Error searching user:", error);
+            setSearchError("An error occurred while searching for the user");
+        }
+    };
 
     const handleAddContact = () => {
-        const newContactName = prompt("Enter contact name:");
-        if (newContactName && newContactName.trim() !== "") {
-            const newContact: Contact = {
-                id: Date.now(),
-                name: newContactName.trim(),
-            };
-            setContacts([...contacts, newContact]);
-        }
+        setShowAddUserModal(true);
+        setSearchError("");
+        setSearchUserEmail("");
     };
 
     const handleDeleteSelected = () => {
@@ -87,6 +179,38 @@ const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("def
             <div style={{ width: "320px", background: "linear-gradient(to bottom, #6A95CC , #A1CAFF)", padding: "20px", height: "100vh", color: "#fff", display: "flex", flexDirection: "column", 
         maxHeight: "100vh" }}>
                  <Logo />
+                 <div style={{
+    display: "flex",
+    alignItems: "center",
+    padding: "10px",
+    marginBottom: "15px",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: "10px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+}}>
+    <img 
+        src={userProfilePic || "/default-avatar.png"} 
+        alt="Profile" 
+        style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "50%",
+            marginRight: "10px",
+            objectFit: "cover",
+            border: "2px solid white"
+        }}
+        onError={(e) => {
+            e.currentTarget.src = "/default-avatar.png";
+        }}
+    />
+    <span style={{
+        color: "#fff",
+        fontSize: "14px",
+        fontWeight: "500"
+    }}>
+        {userFirstName || "Guest"}
+    </span>
+</div>
                  {showSettings && (
     <div
         style={{
@@ -272,19 +396,90 @@ const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("def
                 {/* Main Content */}
                 {selectedContact ? (
                     <Chatbox 
-                    key={selectedContact.id} // Add a unique key based on selectedContact.id
-                    selectedContact={selectedContact} 
-                    goBack={() => setSelectedContact(null)} 
-                    senderLanguage={defaultLanguage} // Pass senderLanguage prop
-
-                />
+                        key={selectedContact.id}
+                        selectedContact={selectedContact} 
+                        goBack={() => setSelectedContact(null)} 
+                        senderLanguage={defaultLanguage}
+                        currentUserEmail={localStorage.getItem("userEmail") || ""}
+                    />
                 ) : (
                     <div style={{ textAlign: "center", zIndex: 1 }}>
-                        <TextGenerateEffect words="WELCOME TO TRANSLINGO." duration={0.7} />
+                        <TextGenerateEffect words={`WELCOME ${username}`} duration={0.7} />
+
                         <TextGenerateEffect words="SELECT A CONTACT TO START CHATTING." duration={0.5} />
                     </div>
                 )}
             </div>
+
+            {showAddUserModal && (
+                <div style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    background: "#fff",
+                    padding: "20px",
+                    borderRadius: "10px",
+                    boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
+                    zIndex: 1000,
+                    width: "300px",
+                }}>
+                    <h2 style={{ textAlign: "center", marginBottom: "15px", color: "#333" }}>
+                        Add New Contact
+                    </h2>
+                    <div style={{ marginBottom: "15px" }}>
+                        <label style={{ display: "block", marginBottom: "5px", color: "#333" }}>
+                            Search by Email:
+                        </label>
+                        <input
+                            type="email"
+                            value={searchUserEmail}
+                            onChange={(e) => setSearchUserEmail(e.target.value)}
+                            placeholder="Enter email address"
+                            style={{
+                                width: "100%",
+                                padding: "8px",
+                                borderRadius: "4px",
+                                border: "1px solid #ddd",
+                                marginBottom: "5px"
+                            }}
+                        />
+                        {searchError && (
+                            <p style={{ color: "red", fontSize: "12px", margin: "5px 0" }}>
+                                {searchError}
+                            </p>
+                        )}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <button
+                            onClick={handleSearchAndAddUser}
+                            style={{
+                                padding: "8px 16px",
+                                backgroundColor: "#6A95CC",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer"
+                            }}
+                        >
+                            Add User
+                        </button>
+                        <button
+                            onClick={() => setShowAddUserModal(false)}
+                            style={{
+                                padding: "8px 16px",
+                                backgroundColor: "#d9534f",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer"
+                            }}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
