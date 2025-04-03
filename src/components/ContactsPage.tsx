@@ -41,6 +41,7 @@ type Contact = {
     id: number;
     name: string;
     email: string;
+    hasNewMessage: boolean;
 };
 
 type SupabaseUser = {
@@ -61,10 +62,7 @@ type Message = {
 };
 
 const ContactsPage = () => {
-    const [contacts, setContacts] = useState<Contact[]>([
-        { id: 1, name: "Alice", email: "alice@example.com" },
-        { id: 2, name: "Bob", email: "bob@example.com" },
-    ]);
+    const [contacts, setContacts] = useState<Contact[]>([]);
     const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
     const [selectedToDelete, setSelectedToDelete] = useState<Set<number>>(new Set());
     const [showDelete, setShowDelete] = useState(false);
@@ -77,6 +75,7 @@ const ContactsPage = () => {
     const [searchUserEmail, setSearchUserEmail] = useState("");
     const [searchError, setSearchError] = useState("");
     const [showAddUserModal, setShowAddUserModal] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchUserData = async () => {
@@ -108,6 +107,86 @@ const ContactsPage = () => {
         fetchUserData();
     }, []);
 
+    const fetchContacts = async () => {
+        try {
+            setLoading(true);
+            const { data, error } = await supabase
+                .from('contacts')
+                .select('*')
+                .eq('user_email', localStorage.getItem("userEmail"));
+
+            if (error) throw error;
+
+            if (data) {
+                const formattedContacts: Contact[] = data.map(contact => ({
+                    id: contact.id,
+                    name: contact.contact_name,
+                    email: contact.contact_email,
+                    hasNewMessage: false
+                }));
+                setContacts(formattedContacts);
+            }
+        } catch (error) {
+            console.error('Error fetching contacts:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchContacts();
+    }, [localStorage.getItem("userEmail")]);
+
+    useEffect(() => {
+        const channel = supabase.channel('new-messages')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `receiver_email=eq.${localStorage.getItem("userEmail")}`
+                },
+                async (payload) => {
+                    const senderEmail = payload.new.sender_email;
+                    
+                    // Update the contact's hasNewMessage status
+                    setContacts(prevContacts =>
+                        prevContacts.map(contact => {
+                            if (contact.email === senderEmail && 
+                                (!selectedContact || selectedContact.email !== contact.email)) {
+                                return { ...contact, hasNewMessage: true };
+                            }
+                            return contact;
+                        })
+                    );
+
+                    // If sender is not in contacts, add them
+                    const senderExists = contacts.some(c => c.email === senderEmail);
+                    if (!senderExists) {
+                        const { data: profile, error } = await supabase
+                            .from('profiles')
+                            .select('email, firstname, lastname')
+                            .eq('email', senderEmail)
+                            .single();
+
+                        if (profile && !error) {
+                            await addContact(
+                                profile.email,
+                                `${profile.firstname} ${profile.lastname}`
+                            );
+                            console.log('Added new contact from message:', profile.email);
+                        }
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [localStorage.getItem("userEmail"), contacts, selectedContact]);
+
     const handleSearchAndAddUser = async () => {
         try {
             setSearchError("");
@@ -132,15 +211,49 @@ const ContactsPage = () => {
             }
 
             if (data) {
-                // Add user to contacts
-                const newContact: Contact = {
-                    id: Date.now(),
+                // Save contact info to localStorage
+                const contactKey = `contact_${data.email}`;
+                const contactInfo = {
                     name: `${data.firstname} ${data.lastname}`,
-                    email: data.email
+                    email: data.email,
+                    firstname: data.firstname,
+                    lastname: data.lastname
                 };
-                setContacts([...contacts, newContact]);
-                setShowAddUserModal(false);
-                setSearchUserEmail("");
+                localStorage.setItem(contactKey, JSON.stringify(contactInfo));
+
+                // Insert into contacts table using stored data
+                const storedContactInfo = JSON.parse(localStorage.getItem(contactKey) || '{}');
+                
+                const { data: insertedContact, error: insertError } = await supabase
+                    .from('contacts')
+                    .insert([
+                        {
+                            user_email: localStorage.getItem("userEmail"),
+                            contact_email: storedContactInfo.email,
+                            contact_name: storedContactInfo.name,
+                            created_at: new Date().toISOString()
+                        }
+                    ])
+                    .select()
+                    .single();
+
+                if (insertError) {
+                    console.error('Error inserting contact:', insertError);
+                    setSearchError("Failed to add contact");
+                    return;
+                }
+
+                if (insertedContact) {
+                    const newContact: Contact = {
+                        id: insertedContact.id,
+                        name: storedContactInfo.name,
+                        email: storedContactInfo.email,
+                        hasNewMessage: false
+                    };
+                    setContacts(prev => [...prev, newContact]);
+                    setShowAddUserModal(false);
+                    setSearchUserEmail("");
+                }
             }
         } catch (error) {
             console.error("Error searching user:", error);
@@ -171,6 +284,148 @@ const ContactsPage = () => {
     const filteredContacts = contacts.filter(contact =>
         contact.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const handleContactClick = (contact: Contact) => {
+        // Clear the new message indicator when clicking on the contact
+        setContacts(prevContacts =>
+            prevContacts.map(c =>
+                c.email === contact.email ? { ...c, hasNewMessage: false } : c
+            )
+        );
+        setSelectedContact(contact);
+    };
+
+    const addContact = async (newContactEmail: string, contactName: string) => {
+        try {
+            // First check if contact already exists to avoid duplicates
+            const { data: existingContact, error: checkError } = await supabase
+                .from('contacts')
+                .select('*')
+                .eq('user_email', localStorage.getItem("userEmail"))
+                .eq('contact_email', newContactEmail)
+                .maybeSingle();
+
+            if (checkError) {
+                console.error('Error checking existing contact:', checkError);
+                return;
+            }
+
+            if (existingContact) {
+                console.log('Contact already exists, skipping insertion');
+                return;
+            }
+
+            // Insert new contact with explicit values
+            const { data, error } = await supabase
+                .from('contacts')
+                .insert({
+                    user_email: localStorage.getItem("userEmail"),
+                    contact_email: newContactEmail,
+                    contact_name: contactName,
+                    created_at: new Date().toISOString()
+                });
+
+            if (error) {
+                console.error('Failed to insert contact:', error);
+                return;
+            }
+
+            // Fetch the newly inserted contact to get its ID
+            const { data: newContactData, error: fetchError } = await supabase
+                .from('contacts')
+                .select('*')
+                .eq('user_email', localStorage.getItem("userEmail"))
+                .eq('contact_email', newContactEmail)
+                .single();
+
+            if (fetchError) {
+                console.error('Error fetching new contact:', fetchError);
+                return;
+            }
+
+            if (newContactData) {
+                const newContact: Contact = {
+                    id: newContactData.id,
+                    name: newContactData.contact_name,
+                    email: newContactData.contact_email,
+                    hasNewMessage: false
+                };
+                setContacts(prev => [...prev, newContact]);
+                console.log('Successfully added new contact:', newContact);
+            }
+        } catch (error) {
+            console.error('Error in addContact:', error);
+        }
+    };
+
+    const searchAndAddContact = async (searchEmail: string) => {
+        try {
+            // First check if the contact already exists in contacts table
+            const { data: existingContact } = await supabase
+                .from('contacts')
+                .select('*')
+                .eq('user_email', localStorage.getItem("userEmail"))
+                .eq('contact_email', searchEmail)
+                .single();
+
+            if (existingContact) {
+                console.log('Contact already exists');
+                return existingContact;
+            }
+
+            // If contact doesn't exist, fetch their profile details
+            const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('email, firstname, lastname')
+                .eq('email', searchEmail)
+                .single();
+
+            if (profileError || !profileData) {
+                console.error('User not found:', profileError);
+                return null;
+            }
+
+            // Insert the new contact into contacts table
+            const { data: newContact, error: insertError } = await supabase
+                .from('contacts')
+                .insert([
+                    {
+                        user_email: localStorage.getItem("userEmail"),
+                        contact_email: profileData.email,
+                        contact_name: `${profileData.firstname} ${profileData.lastname}`
+                         
+                         
+                    }
+                ])
+                .select()
+                .single();
+
+            if (insertError) {
+                console.error('Error inserting contact:', insertError);
+                return null;
+            }
+
+            // Add to local state
+            if (newContact) {
+                const contactToAdd: Contact = {
+                    id: newContact.id,
+                    name: newContact.contact_name,
+                    email: newContact.contact_email,
+                    hasNewMessage: false
+                };
+                setContacts(prev => [...prev, contactToAdd]);
+                return contactToAdd;
+            }
+
+        } catch (error) {
+            console.error('Error in searchAndAddContact:', error);
+            return null;
+        }
+    };
+
+    if (loading) {
+        return <div>Loading contacts...</div>;
+    }
 
     return (
         <div style={{ display: "flex", width: "100vw", height: "100vh", background: "linear-gradient(to right, #BFD7ED, #60A3D9)", fontFamily: "'Poppins', sans-serif" }}>
@@ -337,7 +592,7 @@ const ContactsPage = () => {
             filteredContacts.map((contact) => (
                 <li key={contact.id}
                     style={contactStyle}
-                    onClick={() => setSelectedContact(contact)}
+                    onClick={() => handleContactClick(contact)}
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#1a2b4c"}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "#000b1f"}
                 >
@@ -349,7 +604,33 @@ const ContactsPage = () => {
                             checked={selectedToDelete.has(contact.id)}
                         />
                     )}
-                    {contact.name}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                        <div>
+                            <p style={{ 
+                                margin: 0, 
+                                fontWeight: contact.hasNewMessage ? 'bold' : 'normal',
+                                color: '#fff'
+                            }}>
+                                {contact.name}
+                            </p>
+                            <p style={{ 
+                                margin: 0, 
+                                fontSize: '0.8em', 
+                                color: '#666' 
+                            }}>
+                                {contact.email}
+                            </p>
+                        </div>
+                        {contact.hasNewMessage && (
+                            <div style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: '#ff4444',
+                                marginLeft: '10px'
+                            }} />
+                        )}
+                    </div>
                 </li>
             ))
         ) : (

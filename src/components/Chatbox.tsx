@@ -30,7 +30,6 @@ type ChatboxProps = {
 const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLanguage, currentUserEmail }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [isSenderView, setIsSenderView] = useState(true);
   const [language, setLanguage] = useState("fr");
   const chatWindowRef = useRef<HTMLDivElement | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -141,7 +140,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
       return;
     }
     const recognition = new SpeechRecognition();
-    const sourceLang = isSenderView ? supportedLanguages[senderLanguage] || "en" : language;
+    const sourceLang = supportedLanguages[senderLanguage] || "en";
     recognition.lang = sourceLang;
     recognition.interimResults = false;
     recognition.continuous = false;
@@ -167,9 +166,9 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
     if (!input.trim()) return;
 
     try {
-        // Get source and target languages
-        const sourceLang = isSenderView ? supportedLanguages[senderLanguage] || "en" : language;
-        const targetLang = isSenderView ? language : supportedLanguages[senderLanguage] || "en";
+        // Use the selected target language
+        const sourceLang = supportedLanguages[senderLanguage] || "en";
+        const targetLang = language; // Use the selected language instead of hardcoded "fr"
 
         // Handle emojis
         const emojiRegex = /[\p{Emoji}]/gu;
@@ -240,17 +239,6 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
 
   const clearChat = () => setMessages([]);
 
-  const getLanguageName = (languageCode: string): string => {
-    for (const langName in supportedLanguages) {
-      if (supportedLanguages[langName] === languageCode) {
-        return langName;
-      }
-    }
-    return "Unknown";
-  };
-
-  const senderLanguageName = getLanguageName(supportedLanguages[senderLanguage] || "en");
-
   return (
     <div style={{
       flex: 1,
@@ -261,7 +249,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
       minHeight: "100vh",
       background: "linear-gradient(to right, #132666, #3a4d8f)",
       fontFamily: "'Poppins', sans-serif",
-      paddingBottom: "20px" // Add padding to the bottom
+      paddingBottom: "20px"
     }}>
       {/* Back & Clear Chat Buttons */}
       <div style={{ display: "flex", gap: "10px", margin: "10px", paddingTop: "20px" }}>
@@ -282,38 +270,46 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
 
       <h2 style={{ color: "white" }}>Chat with {selectedContact.name}</h2>
 
+      {/* Add Language Selection Dropdown */}
+      <div style={{ 
+        display: "flex", 
+        alignItems: "center", 
+        gap: "10px", 
+        marginBottom: "15px",
+        color: "white"
+      }}>
+        <label>Translate to:</label>
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          style={{
+            padding: "8px",
+            borderRadius: "6px",
+            backgroundColor: "#6A95CC",
+            color: "white",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: "'Poppins', sans-serif"
+          }}
+        >
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
+          <option value="de">German</option>
+          <option value="zh">Chinese</option>
+          <option value="ar">Arabic</option>
+          <option value="hi">Hindi</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="ru">Russian</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="ml">Malayalam</option>
+        </select>
+      </div>
+
       {/* Chat Container */}
       <div style={{ flex: 1, width: "90%", display: "flex", flexDirection: "column", backgroundColor: "#fff", borderRadius: "10px", overflow: "hidden" }}>
-
-        {/* Sender, Receiver & Language Buttons */}
-        <div style={{
-          display: "flex", justifyContent: "space-between", padding: "10px",
-          borderBottom: "1px solid #ddd", backgroundColor: "#f5f5f5",
-          borderRadius: "10px 10px 0 0"
-        }}>
-          <button onClick={() => setIsSenderView(true)} style={{
-            backgroundColor: isSenderView ? "#4a6edb" : "#fff", color: isSenderView ? "white" : "#000",
-            border: "1px solid #ccc", padding: "8px 16px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold"
-          }}>
-            Sender ({senderLanguageName})
-          </button>
-
-          <button onClick={() => setIsSenderView(false)} style={{
-            backgroundColor: !isSenderView ? "#4a6edb" : "#fff", color: !isSenderView ? "white" : "#000",
-            border: "1px solid #ccc", padding: "8px 16px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold"
-          }}>
-            Receiver ({language})
-          </button>
-
-          <select value={language} onChange={(e) => setLanguage(e.target.value)} style={{
-            padding: "8px", borderRadius: "4px", border: "1px solid #ccc",
-            fontWeight: "bold", cursor: "pointer"
-          }}>
-            {Object.keys(supportedLanguages).map((lang) => (
-              <option key={lang} value={supportedLanguages[lang]}>{lang}</option>
-            ))}
-          </select>
-        </div>
+        {/* Messages Area */}
         <div style={{ flex: 1, overflowY: "auto", padding: "10px" }} ref={chatWindowRef}>
           {messages.map((message) => {
             const isUserMessage = message.sender_email === currentUserEmail;
@@ -353,8 +349,6 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
 
         {/* Input Box & Buttons */}
         <div style={{ display: "flex", padding: "10px", borderTop: "1px solid #ddd", alignItems: "center" }}>
-
-          {/* 🔹 Toggle Keyboard Button */}
           <button
             onClick={() => setShowKeyboard(!showKeyboard)}
             style={{
@@ -367,7 +361,6 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
             ⌨️
           </button>
 
-          {/* 🔹 Text Input Field */}
           <input
             type="text"
             value={input}
@@ -379,7 +372,6 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
             }}
           />
 
-          {/* 🔹 Emoji Picker Button */}
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
             style={{
@@ -388,19 +380,17 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
               border: "1px solid #ccc", cursor: "pointer",
               fontSize: "18px", display: "flex",
               alignItems: "center", justifyContent: "center",
-              marginRight: "8px", marginLeft: "8px" // Add spacing between buttons
+              marginRight: "8px", marginLeft: "8px"
             }}>
             😀
           </button>
 
-          {/* Emoji Picker */}
           {showEmojiPicker && (
             <div style={{ position: "absolute", bottom: "60px", right: "10px", zIndex: 1000 }}>
               <EmojiPicker onEmojiClick={handleEmojiClick} />
             </div>
           )}
 
-          {/* 🔹 Speech-to-Text Button */}
           <button
             onClick={isRecording ? stopSpeechToText : startSpeechToText}
             style={{
@@ -408,12 +398,11 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
               borderRadius: "6px", border: isRecording ? "3px solid red" : "1px solid #ccc",
               cursor: "pointer", display: "flex",
               alignItems: "center", justifyContent: "center",
-              marginRight: "8px" // Add spacing between buttons
+              marginRight: "8px"
             }}>
             {isRecording ? "🔴" : "🎤"}
           </button>
 
-          {/* 🔹 Send Button */}
           <button
             onClick={handleSendMessage}
             style={{
@@ -426,9 +415,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
           </button>
         </div>
 
-        {/* 🔹 Show Multilingual Keyboard Only When Toggled On */}
         {showKeyboard && <MultilingualKeyboard onChange={(text) => setInput(text)} />}
-
       </div>
     </div>
   );
