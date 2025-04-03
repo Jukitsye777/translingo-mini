@@ -30,7 +30,8 @@ type ChatboxProps = {
 const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLanguage, currentUserEmail }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [language, setLanguage] = useState("fr");
+  const [targetLanguage, setTargetLanguage] = useState("fr");
+  const [fromLanguage, setFromLanguage] = useState("en");
   const chatWindowRef = useRef<HTMLDivElement | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -140,8 +141,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
       return;
     }
     const recognition = new SpeechRecognition();
-    const sourceLang = supportedLanguages[senderLanguage] || "en";
-    recognition.lang = sourceLang;
+    recognition.lang = fromLanguage;
     recognition.interimResults = false;
     recognition.continuous = false;
     recognition.onstart = () => setIsRecording(true);
@@ -166,9 +166,9 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
     if (!input.trim()) return;
 
     try {
-        // Use the selected target language
-        const sourceLang = supportedLanguages[senderLanguage] || "en";
-        const targetLang = language; // Use the selected language instead of hardcoded "fr"
+        // Use the selected source and target languages
+        const sourceLang = fromLanguage;
+        const targetLang = targetLanguage;
 
         // Handle emojis
         const emojiRegex = /[\p{Emoji}]/gu;
@@ -177,7 +177,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
 
         // First, show the message immediately with "Translating..." status
         const tempMessage: Message = {
-            id: Date.now(), // temporary ID
+            id: Date.now(),
             sender_email: currentUserEmail,
             receiver_email: selectedContact.email,
             message: input.trim(),
@@ -185,9 +185,8 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
             created_at: new Date().toISOString()
         };
 
-        // Update UI immediately
         setMessages(prev => [...prev, tempMessage]);
-        setInput(""); // Clear input field
+        setInput("");
 
         // Perform translation
         let translatedText;
@@ -199,7 +198,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
                 translatedText = translatedText + " " + extractedEmojis;
             } catch (translationError) {
                 console.error('Translation error:', translationError);
-                translatedText = input.trim(); // Use original text if translation fails
+                translatedText = input.trim();
             }
         }
 
@@ -270,41 +269,79 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
 
       <h2 style={{ color: "white" }}>Chat with {selectedContact.name}</h2>
 
-      {/* Add Language Selection Dropdown */}
+      {/* Language Selection Area */}
       <div style={{ 
         display: "flex", 
         alignItems: "center", 
-        gap: "10px", 
+        gap: "20px", 
         marginBottom: "15px",
-        color: "white"
+        color: "white",
+        padding: "10px",
+        backgroundColor: "rgba(106, 149, 204, 0.1)",
+        borderRadius: "8px"
       }}>
-        <label>Translate to:</label>
-        <select
-          value={language}
-          onChange={(e) => setLanguage(e.target.value)}
-          style={{
-            padding: "8px",
-            borderRadius: "6px",
-            backgroundColor: "#6A95CC",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "'Poppins', sans-serif"
-          }}
-        >
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
-          <option value="de">German</option>
-          <option value="zh">Chinese</option>
-          <option value="ar">Arabic</option>
-          <option value="hi">Hindi</option>
-          <option value="it">Italian</option>
-          <option value="pt">Portuguese</option>
-          <option value="ru">Russian</option>
-          <option value="ja">Japanese</option>
-          <option value="ko">Korean</option>
-          <option value="ml">Malayalam</option>
-        </select>
+        {/* From Language Selector */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <label>From:</label>
+          <select
+            value={fromLanguage}
+            onChange={(e) => setFromLanguage(e.target.value)}
+            style={{
+              padding: "8px",
+              borderRadius: "6px",
+              backgroundColor: "#6A95CC",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "'Poppins', sans-serif"
+            }}
+          >
+            <option value="en">English</option>
+            <option value="fr">French</option>
+            <option value="es">Spanish</option>
+            <option value="de">German</option>
+            <option value="zh">Chinese</option>
+            <option value="ar">Arabic</option>
+            <option value="hi">Hindi</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ru">Russian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="ml">Malayalam</option>
+          </select>
+        </div>
+
+        {/* To Language Selector */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <label>To:</label>
+          <select
+            value={targetLanguage}
+            onChange={(e) => setTargetLanguage(e.target.value)}
+            style={{
+              padding: "8px",
+              borderRadius: "6px",
+              backgroundColor: "#6A95CC",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "'Poppins', sans-serif"
+            }}
+          >
+            <option value="fr">French</option>
+            <option value="es">Spanish</option>
+            <option value="de">German</option>
+            <option value="zh">Chinese</option>
+            <option value="ar">Arabic</option>
+            <option value="hi">Hindi</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ru">Russian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="ml">Malayalam</option>
+          </select>
+        </div>
       </div>
 
       {/* Chat Container */}
