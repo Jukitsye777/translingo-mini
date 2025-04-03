@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { translateText, supportedLanguages } from "../utils/translate";
 import EmojiPicker from "emoji-picker-react";
 import MultilingualKeyboard from "./MultilingualKeyboard";
-
+import { supabase } from '../components/Supabaseclient.tsx'; // Import Supabase client
 
 declare global {
   interface Window {
@@ -13,18 +13,21 @@ declare global {
 
 type Message = {
   id: number;
-  text: string;
-  translatedText: string;
-  isUser: boolean;
+  sender_email: string;
+  receiver_email: string;
+  message: string;
+  translated_message: string;
+  created_at: string;
 };
 
 type ChatboxProps = {
-  selectedContact: { id: number; name: string };
+  selectedContact: { id: number; name: string; email: string };
   goBack: () => void;
-  senderLanguage: string; // Add senderLanguage prop
+  senderLanguage: string;
+  currentUserEmail: string;
 };
 
-const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLanguage }) => {
+const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLanguage, currentUserEmail }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isSenderView, setIsSenderView] = useState(true);
@@ -34,12 +37,97 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showKeyboard, setShowKeyboard] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const channelRef = useRef<any>(null);
 
   useEffect(() => {
-    if (chatWindowRef.current) {
-      chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
+    fetchMessages();
+
+    // Create a channel with a unique name for this conversation
+    const channelName = `chat-${Math.random()}`;
+    const channel = supabase.channel(channelName)
+        .on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages'
+            },
+            async (payload) => {
+                console.log('New message payload:', payload);
+                const newMessage = payload.new as Message;
+                
+                // Check if message is part of this conversation
+                if ((newMessage.sender_email === currentUserEmail && 
+                     newMessage.receiver_email === selectedContact.email) ||
+                    (newMessage.sender_email === selectedContact.email && 
+                     newMessage.receiver_email === currentUserEmail)) {
+                    console.log('Message belongs to this conversation:', newMessage);
+                    handleNewMessage(newMessage);
+                }
+            }
+        )
+        .subscribe((status) => {
+            console.log(`Subscription status for ${channelName}:`, status);
+        });
+
+    // Cleanup
+    return () => {
+        console.log(`Unsubscribing from ${channelName}`);
+        channel.unsubscribe();
+    };
+  }, [currentUserEmail, selectedContact.email]);
+
+  const fetchMessages = async () => {
+    try {
+        const { data, error } = await supabase
+            .from('messages')
+            .select('*')
+            .or(
+                `and(sender_email.eq.${currentUserEmail},receiver_email.eq.${selectedContact.email}),` +
+                `and(sender_email.eq.${selectedContact.email},receiver_email.eq.${currentUserEmail})`
+            )
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            console.error('Fetch error details:', error);
+            throw error;
+        }
+        
+        console.log('Fetched messages:', data);
+        setMessages(data || []);
+        
+        // Scroll to bottom after fetching messages
+        setTimeout(() => {
+            if (chatWindowRef.current) {
+                chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
+            }
+        }, 100);
+    } catch (error) {
+        console.error('Error fetching messages:', error);
     }
-  }, [messages]);
+  };
+
+  const handleNewMessage = (newMsg: Message) => {
+    setMessages(prevMessages => {
+        // Check if message already exists
+        if (!prevMessages.some(msg => msg.id === newMsg.id)) {
+            console.log('Adding new message to state:', newMsg);
+            const updatedMessages = [...prevMessages, newMsg].sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            );
+            
+            // Scroll to bottom when new message arrives
+            setTimeout(() => {
+                if (chatWindowRef.current) {
+                    chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
+                }
+            }, 100);
+            
+            return updatedMessages;
+        }
+        return prevMessages;
+    });
+  };
 
   const handleEmojiClick = (emojiObject: any) => {
     setInput((prev) => prev + emojiObject.emoji);
@@ -47,27 +135,22 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
   };
 
   const startSpeechToText = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("Speech recognition is not supported in this browser.");
       return;
     }
-
     const recognition = new SpeechRecognition();
     const sourceLang = isSenderView ? supportedLanguages[senderLanguage] || "en" : language;
     recognition.lang = sourceLang;
     recognition.interimResults = false;
     recognition.continuous = false;
-
     recognition.onstart = () => setIsRecording(true);
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setInput((prev) => prev + transcript);
     };
     recognition.onend = () => setIsRecording(false);
-
     recognitionRef.current = recognition;
     recognition.start();
   };
@@ -81,56 +164,91 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
 
   const handleSendMessage = async () => {
     if (isRecording) stopSpeechToText();
+    if (!input.trim()) return;
 
-    if (input.trim() !== "") {
-      const newMessage: Message = {
-        id: Date.now(),
-        text: input,
-        translatedText: "Translating...",
-        isUser: isSenderView,
-      };
+    try {
+        // Get source and target languages
+        const sourceLang = isSenderView ? supportedLanguages[senderLanguage] || "en" : language;
+        const targetLang = isSenderView ? language : supportedLanguages[senderLanguage] || "en";
 
-      setMessages((prevMessages) => [...prevMessages, newMessage]);
-      setInput("");
+        // Handle emojis
+        const emojiRegex = /[\p{Emoji}]/gu;
+        const extractedEmojis = input.match(emojiRegex)?.join("") || "";
+        const textWithoutEmojis = input.replace(emojiRegex, "").trim();
 
-      const sourceLang = isSenderView ? supportedLanguages[senderLanguage] || "en" : language;
-      const targetLang = isSenderView ? language : supportedLanguages[senderLanguage] || "en";
+        // First, show the message immediately with "Translating..." status
+        const tempMessage: Message = {
+            id: Date.now(), // temporary ID
+            sender_email: currentUserEmail,
+            receiver_email: selectedContact.email,
+            message: input.trim(),
+            translated_message: "Translating...",
+            created_at: new Date().toISOString()
+        };
 
-      // Separate text and emojis
-      const emojiRegex = /[\p{Emoji}]/gu;
-      const extractedEmojis = input.match(emojiRegex)?.join("") || ""; // Preserve original emojis
-      const textWithoutEmojis = input.replace(emojiRegex, "").trim(); // Remove emojis from text
+        // Update UI immediately
+        setMessages(prev => [...prev, tempMessage]);
+        setInput(""); // Clear input field
 
-      let finalTranslation;
+        // Perform translation
+        let translatedText;
+        if (textWithoutEmojis === "") {
+            translatedText = extractedEmojis;
+        } else {
+            try {
+                translatedText = await translateText(textWithoutEmojis, sourceLang, targetLang);
+                translatedText = translatedText + " " + extractedEmojis;
+            } catch (translationError) {
+                console.error('Translation error:', translationError);
+                translatedText = input.trim(); // Use original text if translation fails
+            }
+        }
 
-      if (textWithoutEmojis === "") {
-        // If only emojis are present, just send them (no translation)
-        finalTranslation = extractedEmojis;
-      } else {
-        // Translate only the text part
-        const translatedText = await translateText(textWithoutEmojis, sourceLang, targetLang);
-        finalTranslation = translatedText + " " + extractedEmojis; // Append original emojis
-      }
+        // Send message to Supabase
+        const { data, error } = await supabase
+            .from('messages')
+            .insert([{
+                sender_email: currentUserEmail,
+                receiver_email: selectedContact.email,
+                message: input.trim(),
+                translated_message: translatedText.trim(),
+            }])
+            .select();
 
-      setMessages((prevMessages) =>
-        prevMessages.map((msg) =>
-          msg.id === newMessage.id
-            ? { ...msg, translatedText: finalTranslation.trim() }
-            : msg
-        )
-      );
+        if (error) {
+            console.error('Supabase error:', error);
+            throw error;
+        }
+
+        // Remove temporary message and add the real one
+        if (data && data[0]) {
+            setMessages(prev => 
+                prev.filter(msg => msg.id !== tempMessage.id).concat(data[0])
+            );
+        }
+
+    } catch (error: any) {
+        console.error('Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+        });
+        alert('Failed to send message. Please try again.');
     }
   };
+
   const clearChat = () => setMessages([]);
-  // Function to get language name from language code
+
   const getLanguageName = (languageCode: string): string => {
     for (const langName in supportedLanguages) {
       if (supportedLanguages[langName] === languageCode) {
         return langName;
       }
     }
-    return "Unknown"; // Default if language code is not found
+    return "Unknown";
   };
+
   const senderLanguageName = getLanguageName(supportedLanguages[senderLanguage] || "en");
 
   return (
@@ -198,25 +316,40 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "10px" }} ref={chatWindowRef}>
           {messages.map((message) => {
-            const isUserMessage = message.isUser === isSenderView;
+            const isUserMessage = message.sender_email === currentUserEmail;
             return (
-              <div key={message.id} style={{ display: "flex", justifyContent: isUserMessage ? "flex-end" : "flex-start" }}>
+              <div key={message.id} style={{ 
+                display: "flex", 
+                justifyContent: isUserMessage ? "flex-end" : "flex-start" 
+              }}>
                 <div style={{
-                  width: "60%", padding: "12px", borderRadius: "10px", marginBottom: "8px",
-                  backgroundColor: isUserMessage ? "#DCF8C6" : "#F1F0F0"
+                  width: "60%",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  marginBottom: "8px",
+                  backgroundColor: isUserMessage ? "#DCF8C6" : "#F1F0F0",
+                  opacity: message.translated_message === "Translating..." ? 0.7 : 1
                 }}>
                   <p style={{ fontWeight: "bold" }}>
-                    {isUserMessage ? message.text : message.translatedText}
+                    {isUserMessage ? message.message : message.translated_message}
                   </p>
                   <p style={{ color: "gray", fontSize: "14px" }}>
-                    {isUserMessage ? message.translatedText : message.text}
+                    {isUserMessage ? message.translated_message : message.message}
                   </p>
+                  {message.translated_message === "Translating..." ? (
+                    <p style={{ color: "#666", fontSize: "12px", fontStyle: "italic" }}>
+                      Translating...
+                    </p>
+                  ) : (
+                    <small style={{ color: "#666", fontSize: "10px" }}>
+                      {new Date(message.created_at).toLocaleTimeString()}
+                    </small>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
-
 
         {/* Input Box & Buttons */}
         <div style={{ display: "flex", padding: "10px", borderTop: "1px solid #ddd", alignItems: "center" }}>
@@ -226,7 +359,7 @@ const Chatbox: React.FC<ChatboxProps> = ({ selectedContact, goBack, senderLangua
             onClick={() => setShowKeyboard(!showKeyboard)}
             style={{
               width: "40px", height: "40px",
-              backgroundColor: showKeyboard ?  "#ddd": "#f0f0f0",
+              backgroundColor: showKeyboard ? "#ddd" : "#f0f0f0",
               color: "#fff", borderRadius: "6px", border: "1px solid #ccc",
               cursor: "pointer", display: "flex", alignItems: "center",
               justifyContent: "center", marginRight: "8px"
