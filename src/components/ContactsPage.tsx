@@ -531,7 +531,7 @@ const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("def
                         <select
                             value={defaultLanguage}
                             onChange={(e) => setDefaultLanguage(e.target.value)}
-                            style={{ display: "block", marginBottom: "10px", padding: "8px", width: "100%" }}
+                            style={{ display: "block", marginBottom: "10px", padding: "8px", color: "#000",	width: "100%" }}
                         >
                             <option value="English">English</option>
                             <option value="French">French</option>
