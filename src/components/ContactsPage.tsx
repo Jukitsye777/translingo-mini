@@ -42,6 +42,7 @@ type Contact = {
     name: string;
     email: string;
     hasNewMessage: boolean;
+    avatar_url: string | null;
 };
 
 type SupabaseUser = {
@@ -68,8 +69,8 @@ const ContactsPage = () => {
     const [showDelete, setShowDelete] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [showSettings, setShowSettings] = useState(false);
-    const [username, setUsername] = useState(localStorage.getItem("username") || "");
-    const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("defaultLanguage") || "English");
+const [username, setUsername] = useState(localStorage.getItem("username") || "");
+const [defaultLanguage, setDefaultLanguage] = useState(localStorage.getItem("defaultLanguage") || "English");
     const [userFirstName, setUserFirstName] = useState("");
     const [userProfilePic, setUserProfilePic] = useState("");
     const [searchUserEmail, setSearchUserEmail] = useState("");
@@ -84,8 +85,8 @@ const ContactsPage = () => {
 
             try {
                 const { data, error } = await supabase
-                    .from("auth-domain")
-                    .select("firstname, lastname")
+                    .from("profiles")
+                    .select("firstname, lastname, avatar_url")
                     .eq("email", userEmail)
                     .single();
 
@@ -93,7 +94,11 @@ const ContactsPage = () => {
 
                 if (data) {
                     setUserFirstName(data.firstname || "Guest");
-                    // Update localStorage
+                    // Save profile photo URL to localStorage
+                    if (data.avatar_url) {
+                        localStorage.setItem("userProfilePhoto", data.avatar_url);
+                        setUserProfilePic(data.avatar_url);
+                    }
                     localStorage.setItem("userFirstName", data.firstname || "");
                     localStorage.setItem("userLastName", data.lastname || "");
                 }
@@ -101,6 +106,7 @@ const ContactsPage = () => {
                 console.error("Error fetching user data:", error);
                 // Fallback to localStorage values
                 setUserFirstName(localStorage.getItem("userFirstName") || "Guest");
+                setUserProfilePic(localStorage.getItem("userProfilePhoto") || "");
             }
         };
 
@@ -110,21 +116,34 @@ const ContactsPage = () => {
     const fetchContacts = async () => {
         try {
             setLoading(true);
-            const { data, error } = await supabase
+            const { data: contactsData, error: contactsError } = await supabase
                 .from('contacts')
                 .select('*')
                 .eq('user_email', localStorage.getItem("userEmail"));
 
-            if (error) throw error;
+            if (contactsError) throw contactsError;
 
-            if (data) {
-                const formattedContacts: Contact[] = data.map(contact => ({
-                    id: contact.id,
-                    name: contact.contact_name,
-                    email: contact.contact_email,
-                    hasNewMessage: false
-                }));
-                setContacts(formattedContacts);
+            if (contactsData) {
+                // Fetch profile photos for all contacts
+                const contactsWithPhotos = await Promise.all(
+                    contactsData.map(async (contact) => {
+                        const { data: profileData } = await supabase
+                            .from('profiles')
+                            .select('avatar_url')
+                            .eq('email', contact.contact_email)
+                            .single();
+
+                        return {
+                            id: contact.id,
+                            name: contact.contact_name,
+                            email: contact.contact_email,
+                            hasNewMessage: false,
+                            avatar_url: profileData?.avatar_url || null
+                        };
+                    })
+                );
+
+                setContacts(contactsWithPhotos);
             }
         } catch (error) {
             console.error('Error fetching contacts:', error);
@@ -244,11 +263,12 @@ const ContactsPage = () => {
                 }
 
                 if (insertedContact) {
-                    const newContact: Contact = {
+            const newContact: Contact = {
                         id: insertedContact.id,
                         name: storedContactInfo.name,
                         email: storedContactInfo.email,
-                        hasNewMessage: false
+                        hasNewMessage: false,
+                        avatar_url: null
                     };
                     setContacts(prev => [...prev, newContact]);
                     setShowAddUserModal(false);
@@ -348,7 +368,8 @@ const ContactsPage = () => {
                     id: newContactData.id,
                     name: newContactData.contact_name,
                     email: newContactData.contact_email,
-                    hasNewMessage: false
+                    hasNewMessage: false,
+                    avatar_url: null
                 };
                 setContacts(prev => [...prev, newContact]);
                 console.log('Successfully added new contact:', newContact);
@@ -411,7 +432,8 @@ const ContactsPage = () => {
                     id: newContact.id,
                     name: newContact.contact_name,
                     email: newContact.contact_email,
-                    hasNewMessage: false
+                    hasNewMessage: false,
+                    avatar_url: null
                 };
                 setContacts(prev => [...prev, contactToAdd]);
                 return contactToAdd;
@@ -443,21 +465,28 @@ const ContactsPage = () => {
     borderRadius: "10px",
     boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
 }}>
-    <img 
-        src={userProfilePic || "/default-avatar.png"} 
-        alt="Profile" 
-        style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "50%",
-            marginRight: "10px",
-            objectFit: "cover",
-            border: "2px solid white"
-        }}
-        onError={(e) => {
-            e.currentTarget.src = "/default-avatar.png";
-        }}
-    />
+    <div style={{
+        width: "40px",
+        height: "40px",
+        borderRadius: "50%",
+        overflow: "hidden",
+        marginRight: "10px",
+        border: "2px solid white",
+        backgroundColor: "#ddd"
+    }}>
+        <img 
+            src={userProfilePic || "/default-avatar.png"}
+            alt="Profile"
+            style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover"
+            }}
+            onError={(e) => {
+                e.currentTarget.src = "/default-avatar.png";
+            }}
+        />
+    </div>
     <span style={{
         color: "#fff",
         fontSize: "14px",
@@ -604,14 +633,44 @@ const ContactsPage = () => {
                             checked={selectedToDelete.has(contact.id)}
                         />
                     )}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-                        <div>
+                    <div style={{ 
+                        display: "flex", 
+                        alignItems: "center", 
+                        width: "100%",
+                        gap: "10px"
+                    }}>
+                        {/* Contact Profile Photo */}
+                        <div style={{
+                            width: "35px",
+                            height: "35px",
+                            borderRadius: "50%",
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            border: "2px solid #6A95CC",
+                            backgroundColor: "#ddd"
+                        }}>
+                            <img 
+                                src={contact.avatar_url || "/default-avatar.png"}
+                                alt={contact.name}
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover"
+                                }}
+                                onError={(e) => {
+                                    e.currentTarget.src = "/default-avatar.png";
+                                }}
+                            />
+                        </div>
+                        
+                        {/* Contact Info */}
+                        <div style={{ flex: 1 }}>
                             <p style={{ 
                                 margin: 0, 
                                 fontWeight: contact.hasNewMessage ? 'bold' : 'normal',
                                 color: '#fff'
                             }}>
-                                {contact.name}
+                    {contact.name}
                             </p>
                             <p style={{ 
                                 margin: 0, 
@@ -621,13 +680,15 @@ const ContactsPage = () => {
                                 {contact.email}
                             </p>
                         </div>
+                        
+                        {/* New Message Indicator */}
                         {contact.hasNewMessage && (
                             <div style={{
                                 width: '8px',
                                 height: '8px',
                                 borderRadius: '50%',
                                 backgroundColor: '#ff4444',
-                                marginLeft: '10px'
+                                marginLeft: 'auto'
                             }} />
                         )}
                     </div>
@@ -678,11 +739,11 @@ const ContactsPage = () => {
                 {selectedContact ? (
                     <Chatbox 
                         key={selectedContact.id}
-                        selectedContact={selectedContact} 
-                        goBack={() => setSelectedContact(null)} 
+                    selectedContact={selectedContact} 
+                    goBack={() => setSelectedContact(null)} 
                         senderLanguage={defaultLanguage}
                         currentUserEmail={localStorage.getItem("userEmail") || ""}
-                    />
+                />
                 ) : (
                     <div style={{ textAlign: "center", zIndex: 1 }}>
                         <TextGenerateEffect words={`WELCOME ${username}`} duration={0.7} />
